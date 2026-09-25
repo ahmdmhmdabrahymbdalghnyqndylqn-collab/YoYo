@@ -20,7 +20,10 @@ import okhttp3.WebSocketListener;
 public final class RelayClient {
     public static final String TOPIC = "yoyo-a2ff119c323eac06be99254633c54462";
     private static final String BASE = "https://ntfy.sh/" + TOPIC;
-    private static final OkHttpClient HTTP = new OkHttpClient.Builder().pingInterval(25, TimeUnit.SECONDS).retryOnConnectionFailure(true).build();
+    private static final OkHttpClient HTTP = new OkHttpClient.Builder()
+            .pingInterval(25, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build();
     private static final Gson GSON = new Gson();
 
     public interface Listener { void onEvent(String json); void onState(boolean connected); }
@@ -29,7 +32,8 @@ public final class RelayClient {
     private RelayClient() {}
 
     public static WebSocket subscribe(final Listener listener){
-        Request req = new Request.Builder().url("wss://ntfy.sh/" + TOPIC + "/ws?since=10m").build();
+        // Replay everything still present in the relay cache after reconnecting.
+        Request req = new Request.Builder().url("wss://ntfy.sh/" + TOPIC + "/ws?since=all").build();
         return HTTP.newWebSocket(req, new WebSocketListener() {
             @Override public void onOpen(WebSocket webSocket, Response response) { listener.onState(true); }
             @Override public void onMessage(WebSocket webSocket, String text) {
@@ -55,7 +59,11 @@ public final class RelayClient {
                     .build();
             HTTP.newCall(req).enqueue(new Callback() {
                 @Override public void onFailure(Call call, java.io.IOException e) { if(cb != null) cb.done(false); }
-                @Override public void onResponse(Call call, Response response) { boolean ok=response.isSuccessful(); response.close(); if(cb != null) cb.done(ok); }
+                @Override public void onResponse(Call call, Response response) {
+                    boolean ok=response.isSuccessful();
+                    response.close();
+                    if(cb != null) cb.done(ok);
+                }
             });
         } catch (Exception e) { if(cb != null) cb.done(false); }
     }
