@@ -33,6 +33,7 @@ public class RealtimeService extends Service {
     public static final String ACTION_EVENT = "com.yoyo.privatechat.EVENT";
     public static final String EXTRA_JSON = "json";
     private static final String MESSAGE_CHANNEL="yoyo_messages_v3";
+    private static final String CALL_CHANNEL="yoyo_calls_v2";
 
     private final Handler h = new Handler(Looper.getMainLooper());
     private WebSocket ws;
@@ -63,7 +64,10 @@ public class RealtimeService extends Service {
         if(ws!=null){try{ws.cancel();}catch(Exception ignored){}}
 
         ws=RelayClient.subscribe(new RelayClient.Listener(){
-            @Override public void onEvent(String json){h.post(()->handle(json));}
+            @Override public void onEvent(String json){
+                h.post(()->handle(json));
+            }
+
             @Override public void onState(boolean connected){
                 if(connected){
                     h.postDelayed(()->{
@@ -107,6 +111,7 @@ public class RealtimeService extends Service {
 
     private void sendPresence(){
         if(!Prefs.hasProfile(this)||Prefs.token(this).isEmpty())return;
+
         BackendClient.presence(this);
 
         try{
@@ -191,18 +196,22 @@ public class RealtimeService extends Service {
                         String encrypted=m.optString("body","");
                         String text;
 
-                        try{text=CryptoBox.decrypt(encrypted);}
-                        catch(Exception e){continue;}
+                        try{
+                            text=CryptoBox.decrypt(encrypted);
+                        }catch(Exception e){
+                            continue;
+                        }
 
                         long ts=parseTime(m.optString("created_at",""));
                         boolean mine=Prefs.phone(this).equals(from);
+                        boolean isUndeliveredIncoming=!mine && m.isNull("delivered_at");
                         String status;
 
                         if(mine){
                             status=m.isNull("delivered_at")?"sent":"delivered";
                         }else{
                             status="received";
-                            if(m.isNull("delivered_at"))ackIds.add(id);
+                            if(isUndeliveredIncoming)ackIds.add(id);
                         }
 
                         boolean fresh=EventStore.addMessage(
@@ -210,7 +219,9 @@ public class RealtimeService extends Service {
                                 new EventStore.Msg(id,from,to,text,ts,status)
                         );
 
-                        if(fresh&&!mine){
+                        // Historical messages stay in the chat, but only genuinely
+                        // undelivered incoming messages are allowed to notify.
+                        if(fresh && isUndeliveredIncoming){
                             EventStore.Contact c=contactMap.get(from);
                             showMessage(from,c==null?from:c.name,text);
                         }
@@ -219,13 +230,17 @@ public class RealtimeService extends Service {
 
                 if(!ackIds.isEmpty())BackendClient.ack(this,ackIds);
                 broadcast("{}");
+
             }catch(Exception ignored){}
         });
     }
 
     private long parseTime(String iso){
-        try{return Instant.parse(iso).toEpochMilli();}
-        catch(Exception e){return System.currentTimeMillis();}
+        try{
+            return Instant.parse(iso).toEpochMilli();
+        }catch(Exception e){
+            return System.currentTimeMillis();
+        }
     }
 
     private void sendAck(String to,String msgId){
@@ -258,14 +273,24 @@ public class RealtimeService extends Service {
             long ts=o.optLong("ts",System.currentTimeMillis());
 
             if(!from.isEmpty()){
-                EventStore.upsertContact(this,new EventStore.Contact(from,name,avatar,ts));
+                EventStore.upsertContact(
+                        this,
+                        new EventStore.Contact(from,name,avatar,ts)
+                );
             }
 
             if("chat".equals(type)){
                 String msgId=o.optString("id");
                 boolean fresh=EventStore.addMessage(
                         this,
-                        new EventStore.Msg(msgId,from,to,o.optString("text"),ts,"received")
+                        new EventStore.Msg(
+                                msgId,
+                                from,
+                                to,
+                                o.optString("text"),
+                                ts,
+                                "received"
+                        )
                 );
 
                 List<String> ids=new ArrayList<>();
@@ -276,20 +301,29 @@ public class RealtimeService extends Service {
                 broadcast(json);
 
                 if(fresh)showMessage(from,name,o.optString("text"));
+
             }else if("ack".equals(type)){
                 String msgId=o.optString("msgId");
                 if(!msgId.isEmpty())EventStore.markDelivered(this,from,msgId);
                 broadcast(json);
+
             }else if("presence".equals(type)){
                 broadcast(json);
+
             }else if("call_offer".equals(type)){
                 if(System.currentTimeMillis()-ts<120000L){
                     broadcast(json);
                     showIncomingCall(o);
                 }
+
+            }else if("call_hangup".equals(type)){
+                ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).cancel(9001);
+                broadcast(json);
+
             }else if(type.startsWith("call_")||"ice".equals(type)){
                 if(System.currentTimeMillis()-ts<120000L)broadcast(json);
             }
+
         }catch(Exception ignored){}
     }
 
@@ -353,19 +387,24 @@ public class RealtimeService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE
         );
 
-        NotificationCompat.Builder b=new NotificationCompat.Builder(this,"yoyo_calls")
+        NotificationCompat.Builder b=new NotificationCompat.Builder(this,CALL_CHANNEL)
                 .setSmallIcon(R.drawable.ic_heart)
                 .setContentTitle("مكالمة YoYo واردة")
                 .setContentText(name+" يتصل بك")
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOngoing(true)
                 .setAutoCancel(true)
                 .setContentIntent(pi)
-                .addAction(0,"رد",pi)
-                .setDefaults(NotificationCompat.DEFAULT_ALL);
+                .setTimeoutAfter(120000L)
+                .addAction(0,"رد",pi);
 
-        ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(9001,b.build());
+        Notification n=b.build();
+        n.flags|=Notification.FLAG_INSISTENT;
+
+        ((NotificationManager)getSystemService(NOTIFICATION_SERVICE))
+                .notify(9001,n);
     }
 
     private void channels(){
@@ -373,20 +412,31 @@ public class RealtimeService extends Service {
             NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
 
             NotificationChannel serviceChannel=
-                    new NotificationChannel("yoyo_service","اتصال YoYo",NotificationManager.IMPORTANCE_MIN);
+                    new NotificationChannel(
+                            "yoyo_service",
+                            "اتصال YoYo",
+                            NotificationManager.IMPORTANCE_MIN
+                    );
             serviceChannel.setSound(null,null);
             nm.createNotificationChannel(serviceChannel);
 
-            Uri sound=Uri.parse("android.resource://"+getPackageName()+"/"+R.raw.yoyo_chime);
-            AudioAttributes attrs=new AudioAttributes.Builder()
+            Uri messageSound=Uri.parse(
+                    "android.resource://"+getPackageName()+"/"+R.raw.yoyo_chime
+            );
+
+            AudioAttributes messageAttrs=new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build();
 
             NotificationChannel messageChannel=
-                    new NotificationChannel(MESSAGE_CHANNEL,"رسائل YoYo ❤️",NotificationManager.IMPORTANCE_HIGH);
+                    new NotificationChannel(
+                            MESSAGE_CHANNEL,
+                            "رسائل YoYo ❤️",
+                            NotificationManager.IMPORTANCE_HIGH
+                    );
             messageChannel.setDescription("رسائل YoYo بصوت واهتزاز وبانر أعلى الشاشة");
-            messageChannel.setSound(sound,attrs);
+            messageChannel.setSound(messageSound,messageAttrs);
             messageChannel.enableVibration(true);
             messageChannel.setVibrationPattern(new long[]{0,240,110,240});
             messageChannel.enableLights(true);
@@ -394,9 +444,25 @@ public class RealtimeService extends Service {
             messageChannel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             nm.createNotificationChannel(messageChannel);
 
-            nm.createNotificationChannel(
-                    new NotificationChannel("yoyo_calls","مكالمات YoYo",NotificationManager.IMPORTANCE_HIGH)
-            );
+            Uri ring=RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+            AudioAttributes ringAttrs=new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build();
+
+            NotificationChannel callChannel=
+                    new NotificationChannel(
+                            CALL_CHANNEL,
+                            "مكالمات YoYo 📞",
+                            NotificationManager.IMPORTANCE_HIGH
+                    );
+            callChannel.setDescription("رنين المكالمات الواردة في YoYo");
+            callChannel.setSound(ring,ringAttrs);
+            callChannel.enableVibration(true);
+            callChannel.setVibrationPattern(new long[]{0,500,300,500,300,700});
+            callChannel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            callChannel.setShowBadge(true);
+            nm.createNotificationChannel(callChannel);
         }
     }
 
@@ -411,7 +477,9 @@ public class RealtimeService extends Service {
         super.onDestroy();
     }
 
-    @Override public IBinder onBind(Intent intent){return null;}
+    @Override public IBinder onBind(Intent intent){
+        return null;
+    }
 
     public static void start(android.content.Context c){
         ContextCompat.startForegroundService(c,new Intent(c,RealtimeService.class));

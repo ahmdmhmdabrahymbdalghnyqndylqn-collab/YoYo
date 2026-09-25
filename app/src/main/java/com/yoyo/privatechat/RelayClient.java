@@ -32,39 +32,64 @@ public final class RelayClient {
     private RelayClient() {}
 
     public static WebSocket subscribe(final Listener listener){
-        // Replay everything still present in the relay cache after reconnecting.
-        Request req = new Request.Builder().url("wss://ntfy.sh/" + TOPIC + "/ws?since=all").build();
+        // Live relay only. Offline/history delivery comes from Supabase, so old relay
+        // messages must never be replayed as fresh notifications after reconnect.
+        Request req = new Request.Builder()
+                .url("wss://ntfy.sh/" + TOPIC + "/ws")
+                .build();
+
         return HTTP.newWebSocket(req, new WebSocketListener() {
-            @Override public void onOpen(WebSocket webSocket, Response response) { listener.onState(true); }
+            @Override public void onOpen(WebSocket webSocket, Response response) {
+                listener.onState(true);
+            }
+
             @Override public void onMessage(WebSocket webSocket, String text) {
                 try {
                     JsonObject wrapper = GSON.fromJson(text, JsonObject.class);
-                    if (wrapper != null && wrapper.has("event") && "message".equals(wrapper.get("event").getAsString()) && wrapper.has("message")) {
+                    if (wrapper != null
+                            && wrapper.has("event")
+                            && "message".equals(wrapper.get("event").getAsString())
+                            && wrapper.has("message")) {
                         String plain = CryptoBox.decrypt(wrapper.get("message").getAsString());
                         listener.onEvent(plain);
                     }
-                } catch (Exception e) { Log.w("YoYoRelay", "Ignoring payload", e); }
+                } catch (Exception e) {
+                    Log.w("YoYoRelay", "Ignoring payload", e);
+                }
             }
-            @Override public void onClosed(WebSocket webSocket, int code, String reason) { listener.onState(false); }
-            @Override public void onFailure(WebSocket webSocket, Throwable t, Response response) { listener.onState(false); }
+
+            @Override public void onClosed(WebSocket webSocket, int code, String reason) {
+                listener.onState(false);
+            }
+
+            @Override public void onFailure(WebSocket webSocket, Throwable t, Response response) {
+                listener.onState(false);
+            }
         });
     }
 
     public static void publish(String json, SendCallback cb){
         try {
             String enc = CryptoBox.encrypt(json);
-            Request req = new Request.Builder().url(BASE)
+            Request req = new Request.Builder()
+                    .url(BASE)
                     .post(RequestBody.create(enc, MediaType.parse("text/plain; charset=utf-8")))
                     .header("Priority", "high")
                     .build();
+
             HTTP.newCall(req).enqueue(new Callback() {
-                @Override public void onFailure(Call call, java.io.IOException e) { if(cb != null) cb.done(false); }
+                @Override public void onFailure(Call call, java.io.IOException e) {
+                    if(cb != null) cb.done(false);
+                }
+
                 @Override public void onResponse(Call call, Response response) {
                     boolean ok=response.isSuccessful();
                     response.close();
                     if(cb != null) cb.done(ok);
                 }
             });
-        } catch (Exception e) { if(cb != null) cb.done(false); }
+        } catch (Exception e) {
+            if(cb != null) cb.done(false);
+        }
     }
 }
