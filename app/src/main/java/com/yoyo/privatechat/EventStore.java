@@ -53,19 +53,40 @@ public final class EventStore {
         return list;
     }
 
-    public static synchronized void addMessage(Context c,Msg m){
+    public static synchronized boolean addMessage(Context c,Msg m){
         String me=Prefs.phone(c); String other=me.equals(m.from)?m.to:m.from;
-        if(other==null || other.isEmpty()) return;
+        if(other==null || other.isEmpty()) return false;
         List<Msg> list=messages(c,other);
-        for(Msg x:list) if(x.id!=null && x.id.equals(m.id)) return;
-        list.add(m); if(list.size()>500) list=new ArrayList<>(list.subList(list.size()-500,list.size()));
+        for(Msg x:list) if(x.id!=null && x.id.equals(m.id)) return false;
+        list.add(m);
+        if(list.size()>500) list=new ArrayList<>(list.subList(list.size()-500,list.size()));
         sp(c).edit().putString("m_"+safe(other),G.toJson(list)).apply();
+        return true;
     }
 
     public static synchronized void markSent(Context c,String other,String id){
+        setStatus(c,other,id,"sent");
+    }
+
+    public static synchronized void markDelivered(Context c,String other,String id){
+        setStatus(c,other,id,"delivered");
+    }
+
+    private static void setStatus(Context c,String other,String id,String status){
         List<Msg> list=messages(c,other);
-        for(Msg x:list) if(id.equals(x.id)) x.status="sent";
+        for(Msg x:list) if(id.equals(x.id)) x.status=status;
         sp(c).edit().putString("m_"+safe(other),G.toJson(list)).apply();
+    }
+
+    public static synchronized List<Msg> outstanding(Context c){
+        List<Msg> out=new ArrayList<>();
+        String me=Prefs.phone(c);
+        for(Contact contact:contacts(c)){
+            for(Msg m:messages(c,contact.phone)){
+                if(me.equals(m.from) && !"delivered".equals(m.status)) out.add(m);
+            }
+        }
+        return out;
     }
 
     private static String safe(String s){ return s.replaceAll("[^0-9A-Za-z]", "_"); }
