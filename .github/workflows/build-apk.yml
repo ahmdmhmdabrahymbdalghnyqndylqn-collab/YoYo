@@ -60,6 +60,36 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "TAG=v$VERSION" >> "$GITHUB_ENV"
 
+      - name: Generate YoYo notification chime
+        shell: bash
+        run: |
+          mkdir -p app/src/main/res/raw
+          python3 - <<'PY'
+          import math, wave, struct, os
+          rate=44100
+          parts=[(0.0, 0.23, 880.0, 0.72), (0.12, 0.42, 1174.66, 0.62)]
+          dur=0.58
+          n=int(rate*dur)
+          samples=[]
+          for i in range(n):
+              t=i/rate
+              v=0.0
+              for start,end,freq,amp in parts:
+                  if start <= t <= end:
+                      local=(t-start)/(end-start)
+                      env=(1-math.exp(-25*local))*math.exp(-4.2*local)
+                      v += amp*env*math.sin(2*math.pi*freq*t)
+              v=max(-0.92,min(0.92,v))
+              samples.append(int(v*32767))
+          path="app/src/main/res/raw/yoyo_chime.wav"
+          with wave.open(path,"wb") as w:
+              w.setnchannels(1)
+              w.setsampwidth(2)
+              w.setframerate(rate)
+              w.writeframes(b"".join(struct.pack("<h",s) for s in samples))
+          print(path, os.path.getsize(path))
+          PY
+
       - name: Build release APK
         run: gradle :app:assembleRelease --stacktrace
 

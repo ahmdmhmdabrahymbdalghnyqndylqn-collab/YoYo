@@ -32,7 +32,7 @@ import okhttp3.WebSocket;
 public class RealtimeService extends Service {
     public static final String ACTION_EVENT = "com.yoyo.privatechat.EVENT";
     public static final String EXTRA_JSON = "json";
-    private static final String MESSAGE_CHANNEL="yoyo_messages_v2";
+    private static final String MESSAGE_CHANNEL="yoyo_messages_v3";
 
     private final Handler h = new Handler(Looper.getMainLooper());
     private WebSocket ws;
@@ -377,7 +377,7 @@ public class RealtimeService extends Service {
             serviceChannel.setSound(null,null);
             nm.createNotificationChannel(serviceChannel);
 
-            Uri sound=RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            Uri sound=Uri.parse("android.resource://"+getPackageName()+"/"+R.raw.yoyo_chime);
             AudioAttributes attrs=new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
