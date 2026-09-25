@@ -4,13 +4,26 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
+  schedule:
+    - cron: '17 4 */3 * *'
 
 permissions:
   contents: write
   actions: write
 
 jobs:
+  keep-signing-key-alive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Touch stable YoYo signing cache
+        uses: actions/cache@v4
+        with:
+          path: .signing
+          key: yoyo-signing-v1
+
   build:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
