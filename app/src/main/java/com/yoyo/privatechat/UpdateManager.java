@@ -65,7 +65,7 @@ public final class UpdateManager {
                     String raw=response.body()!=null?response.body().string():"{}";
                     JSONObject o=new JSONObject(raw);
                     String tag=o.optString("tag_name","").replaceFirst("^v","");
-                    if(tag.isEmpty() || compareVersions(tag, BuildConfig.VERSION_NAME)<=0) return;
+                    if(tag.isEmpty() || compareVersions(tag, currentVersion(c))<=0) return;
 
                     JSONArray assets=o.optJSONArray("assets");
                     String url="";
@@ -169,6 +169,15 @@ public final class UpdateManager {
 
     public static long readyDownloadId(Context c){
         return sp(c).getLong("download_id",-1);
+    }
+
+    private static String currentVersion(Context c){
+        try{
+            android.content.pm.PackageInfo info=c.getPackageManager().getPackageInfo(c.getPackageName(),0);
+            return info.versionName==null?"0":info.versionName;
+        }catch(Exception e){
+            return "0";
+        }
     }
 
     private static int compareVersions(String a,String b){
