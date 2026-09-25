@@ -380,10 +380,38 @@ public class RealtimeService extends Service {
                 .putExtra("sdp",sdp)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP);
 
-        PendingIntent pi=PendingIntent.getActivity(
+        PendingIntent openPi=PendingIntent.getActivity(
                 this,
-                ("call"+callId).hashCode(),
+                ("call-open"+callId).hashCode(),
                 open,
+                PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE
+        );
+
+        Intent answer=new Intent(this,CallActivity.class)
+                .putExtra("mode","incoming")
+                .putExtra("phone",phone)
+                .putExtra("name",name)
+                .putExtra("callId",callId)
+                .putExtra("sdp",sdp)
+                .putExtra("autoAnswer",true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+        PendingIntent answerPi=PendingIntent.getActivity(
+                this,
+                ("call-answer"+callId).hashCode(),
+                answer,
+                PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE
+        );
+
+        Intent reject=new Intent(this,CallActionReceiver.class)
+                .setAction("com.yoyo.privatechat.REJECT_CALL")
+                .putExtra("phone",phone)
+                .putExtra("callId",callId);
+
+        PendingIntent rejectPi=PendingIntent.getBroadcast(
+                this,
+                ("call-reject"+callId).hashCode(),
+                reject,
                 PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE
         );
 
@@ -395,10 +423,12 @@ public class RealtimeService extends Service {
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOngoing(true)
-                .setAutoCancel(true)
-                .setContentIntent(pi)
+                .setAutoCancel(false)
+                .setContentIntent(openPi)
+                .setFullScreenIntent(openPi,true)
                 .setTimeoutAfter(120000L)
-                .addAction(0,"رد",pi);
+                .addAction(0,"رفض",rejectPi)
+                .addAction(0,"رد",answerPi);
 
         Notification n=b.build();
         n.flags|=Notification.FLAG_INSISTENT;

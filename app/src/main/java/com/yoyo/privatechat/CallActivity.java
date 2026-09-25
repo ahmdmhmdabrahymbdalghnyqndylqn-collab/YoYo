@@ -20,7 +20,9 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -49,11 +51,12 @@ import java.util.UUID;
 public class CallActivity extends AppCompatActivity {
     private String mode,phone,name,callId,offerSdp;
     private TextView status,time;
+    private LinearLayout incomingButtons,inCallButtons;
     private PeerConnectionFactory factory;
     private PeerConnection pc;
     private AudioTrack localAudio;
     private final List<IceCandidate> pendingIce=new ArrayList<>();
-    private boolean remoteSet=false,muted=false,speaker=false,connected=false;
+    private boolean remoteSet=false,muted=false,speaker=false,connected=false,accepted=false;
     private final Handler h=new Handler(Looper.getMainLooper());
     private long connectedAt=0;
     private Ringtone incomingRingtone;
@@ -69,6 +72,18 @@ public class CallActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle b){
         super.onCreate(b);
+
+        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.O_MR1){
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+        }else{
+            getWindow().addFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                            | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            );
+        }
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
         mode=getIntent().getStringExtra("mode");
         phone=getIntent().getStringExtra("phone");
         name=getIntent().getStringExtra("name");
@@ -81,8 +96,14 @@ public class CallActivity extends AppCompatActivity {
 
         buildUi();
 
-        if("incoming".equals(mode)) startIncomingRinging();
-        requestNeededPermissionsOrStart();
+        if("incoming".equals(mode)){
+            startIncomingRinging();
+            if(getIntent().getBooleanExtra("autoAnswer",false)){
+                acceptIncomingCall();
+            }
+        }else{
+            requestNeededPermissionsOrStart();
+        }
     }
 
     private void requestNeededPermissionsOrStart(){
@@ -123,9 +144,12 @@ public class CallActivity extends AppCompatActivity {
         n.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
         root.addView(n);
 
-        status=Ui.text(this,
-                "incoming".equals(mode)?"مكالمة واردة...":"جاري الاتصال...",
-                16,Ui.C_MUTED);
+        status=Ui.text(
+                this,
+                "incoming".equals(mode)?"مكالمة YoYo واردة":"جاري الاتصال...",
+                17,
+                Ui.C_MUTED
+        );
         status.setGravity(Gravity.CENTER);
         status.setPadding(0,Ui.dp(this,8),0,0);
         root.addView(status);
@@ -135,19 +159,41 @@ public class CallActivity extends AppCompatActivity {
         time.setPadding(0,Ui.dp(this,8),0,0);
         root.addView(time);
 
-        LinearLayout buttons=new LinearLayout(this);
-        buttons.setGravity(Gravity.CENTER);
-        buttons.setPadding(0,Ui.dp(this,70),0,0);
-        root.addView(buttons,new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,0,1));
+        incomingButtons=new LinearLayout(this);
+        incomingButtons.setGravity(Gravity.CENTER);
+        incomingButtons.setPadding(0,Ui.dp(this,70),0,0);
+
+        TextView reject=callButton("✕\nرفض",Color.rgb(220,53,69));
+        TextView answer=callButton("☎\nرد",Color.rgb(34,170,76));
+
+        LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(0,Ui.dp(this,100),1);
+        bp.setMargins(Ui.dp(this,8),0,Ui.dp(this,8),0);
+        incomingButtons.addView(reject,bp);
+        incomingButtons.addView(answer,bp);
+
+        reject.setOnClickListener(v->rejectIncomingCall());
+        answer.setOnClickListener(v->acceptIncomingCall());
+
+        root.addView(
+                incomingButtons,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        0,
+                        1
+                )
+        );
+
+        inCallButtons=new LinearLayout(this);
+        inCallButtons.setGravity(Gravity.CENTER);
+        inCallButtons.setPadding(0,Ui.dp(this,70),0,0);
 
         TextView mute=round("🎙\nكتم");
         TextView sp=round("🔊\nسماعة");
-        TextView end=round("✕\nإنهاء");
+        TextView end=callButton("✕\nإنهاء",Ui.C_ACCENT);
 
-        buttons.addView(mute,new LinearLayout.LayoutParams(0,Ui.dp(this,90),1));
-        buttons.addView(sp,new LinearLayout.LayoutParams(0,Ui.dp(this,90),1));
-        buttons.addView(end,new LinearLayout.LayoutParams(0,Ui.dp(this,90),1));
+        inCallButtons.addView(mute,new LinearLayout.LayoutParams(0,Ui.dp(this,90),1));
+        inCallButtons.addView(sp,new LinearLayout.LayoutParams(0,Ui.dp(this,90),1));
+        inCallButtons.addView(end,new LinearLayout.LayoutParams(0,Ui.dp(this,90),1));
 
         mute.setOnClickListener(v->{
             muted=!muted;
@@ -157,16 +203,43 @@ public class CallActivity extends AppCompatActivity {
 
         sp.setOnClickListener(v->{
             speaker=!speaker;
-            if(speaker) routeSpeaker();
+            if(speaker)routeSpeaker();
             else routePreferredAudio();
             sp.setAlpha(speaker?1f:.55f);
         });
 
-        end.setTextColor(Color.WHITE);
-        end.setBackgroundColor(Ui.C_ACCENT);
         end.setOnClickListener(v->hangup(true));
 
+        root.addView(
+                inCallButtons,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        0,
+                        1
+                )
+        );
+
+        if("incoming".equals(mode)){
+            incomingButtons.setVisibility(View.VISIBLE);
+            inCallButtons.setVisibility(View.GONE);
+        }else{
+            incomingButtons.setVisibility(View.GONE);
+            inCallButtons.setVisibility(View.VISIBLE);
+        }
+
         setContentView(root);
+    }
+
+    private TextView callButton(String s,int bg){
+        TextView t=Ui.text(this,s,18,Color.WHITE);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(Ui.dp(this,8),Ui.dp(this,12),Ui.dp(this,8),Ui.dp(this,12));
+        t.setBackgroundTintList(android.content.res.ColorStateList.valueOf(bg));
+        android.graphics.drawable.GradientDrawable g=new android.graphics.drawable.GradientDrawable();
+        g.setColor(bg);
+        g.setCornerRadius(Ui.dp(this,32));
+        t.setBackground(g);
+        return t;
     }
 
     private TextView round(String s){
@@ -176,14 +249,42 @@ public class CallActivity extends AppCompatActivity {
         return t;
     }
 
+    private void acceptIncomingCall(){
+        if(accepted)return;
+        accepted=true;
+
+        stopIncomingRinging();
+        ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).cancel(9001);
+
+        if(incomingButtons!=null)incomingButtons.setVisibility(View.GONE);
+        if(inCallButtons!=null)inCallButtons.setVisibility(View.VISIBLE);
+
+        status.setText("جاري توصيل المكالمة...");
+        requestNeededPermissionsOrStart();
+    }
+
+    private void rejectIncomingCall(){
+        stopIncomingRinging();
+        ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).cancel(9001);
+
+        try{
+            RelayClient.publish(base("call_hangup").toString(),null);
+        }catch(Exception ignored){}
+
+        cleanup();
+        finish();
+    }
+
     private void startIncomingRinging(){
         try{
             Uri uri=RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
             incomingRingtone=RingtoneManager.getRingtone(this,uri);
+
             if(incomingRingtone!=null){
                 if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.P){
                     incomingRingtone.setLooping(true);
                 }
+
                 if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP){
                     incomingRingtone.setAudioAttributes(
                             new AudioAttributes.Builder()
@@ -192,6 +293,7 @@ public class CallActivity extends AppCompatActivity {
                                     .build()
                     );
                 }
+
                 incomingRingtone.play();
             }
         }catch(Exception ignored){}
@@ -199,15 +301,21 @@ public class CallActivity extends AppCompatActivity {
 
     private void stopIncomingRinging(){
         try{
-            if(incomingRingtone!=null && incomingRingtone.isPlaying())incomingRingtone.stop();
+            if(incomingRingtone!=null&&incomingRingtone.isPlaying()){
+                incomingRingtone.stop();
+            }
         }catch(Exception ignored){}
+
         incomingRingtone=null;
     }
 
     private void startRingback(){
         if("incoming".equals(mode))return;
+
         try{
-            if(ringback==null)ringback=new ToneGenerator(AudioManager.STREAM_VOICE_CALL,70);
+            if(ringback==null){
+                ringback=new ToneGenerator(AudioManager.STREAM_VOICE_CALL,70);
+            }
             ringback.startTone(ToneGenerator.TONE_SUP_RINGTONE);
         }catch(Exception ignored){}
     }
@@ -221,9 +329,11 @@ public class CallActivity extends AppCompatActivity {
     private void startRtc(){
         try{
             PeerConnectionFactory.initialize(
-                    PeerConnectionFactory.InitializationOptions.builder(getApplicationContext())
+                    PeerConnectionFactory.InitializationOptions
+                            .builder(getApplicationContext())
                             .createInitializationOptions()
             );
+
             factory=PeerConnectionFactory.builder().createPeerConnectionFactory();
 
             MediaConstraints ac=new MediaConstraints();
@@ -244,6 +354,7 @@ public class CallActivity extends AppCompatActivity {
 
             pc=factory.createPeerConnection(cfg,new PeerConnection.Observer(){
                 @Override public void onSignalingChange(PeerConnection.SignalingState s){}
+
                 @Override public void onIceConnectionChange(PeerConnection.IceConnectionState s){
                     runOnUiThread(()->{
                         if(s==PeerConnection.IceConnectionState.CONNECTED
@@ -255,6 +366,7 @@ public class CallActivity extends AppCompatActivity {
                         }
                     });
                 }
+
                 @Override public void onIceConnectionReceivingChange(boolean b){}
                 @Override public void onIceGatheringChange(PeerConnection.IceGatheringState s){}
                 @Override public void onIceCandidate(IceCandidate c){sendIce(c);}
@@ -264,21 +376,27 @@ public class CallActivity extends AppCompatActivity {
                 @Override public void onDataChannel(DataChannel d){}
                 @Override public void onRenegotiationNeeded(){}
                 @Override public void onAddTrack(RtpReceiver r,MediaStream[] ms){}
+
                 @Override public void onConnectionChange(PeerConnection.PeerConnectionState s){
                     runOnUiThread(()->{
-                        if(s==PeerConnection.PeerConnectionState.CONNECTED)onConnected();
+                        if(s==PeerConnection.PeerConnectionState.CONNECTED){
+                            onConnected();
+                        }
                     });
                 }
             });
 
             if(pc==null)throw new IllegalStateException("peer connection");
-            pc.addTrack(localAudio);
 
+            pc.addTrack(localAudio);
             audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
             routePreferredAudio();
 
-            if("incoming".equals(mode)&&offerSdp!=null)acceptOffer(offerSdp);
-            else createOffer();
+            if("incoming".equals(mode)&&offerSdp!=null){
+                acceptOffer(offerSdp);
+            }else{
+                createOffer();
+            }
 
         }catch(Exception e){
             stopIncomingRinging();
@@ -301,12 +419,14 @@ public class CallActivity extends AppCompatActivity {
             if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S){
                 for(AudioDeviceInfo d:audioManager.getAvailableCommunicationDevices()){
                     int t=d.getType();
+
                     if(t==AudioDeviceInfo.TYPE_BLUETOOTH_SCO
                             ||t==AudioDeviceInfo.TYPE_BLE_HEADSET
                             ||t==AudioDeviceInfo.TYPE_BLE_SPEAKER){
                         return audioManager.setCommunicationDevice(d);
                     }
                 }
+
                 return false;
             }
 
@@ -316,12 +436,15 @@ public class CallActivity extends AppCompatActivity {
                 audioManager.setSpeakerphoneOn(false);
                 return true;
             }
+
         }catch(Exception ignored){}
+
         return false;
     }
 
     private void routePreferredAudio(){
         speaker=false;
+
         if(routeBluetooth())return;
 
         try{
@@ -332,7 +455,9 @@ public class CallActivity extends AppCompatActivity {
                         return;
                     }
                 }
+
                 audioManager.clearCommunicationDevice();
+
             }else{
                 audioManager.setBluetoothScoOn(false);
                 audioManager.stopBluetoothSco();
@@ -350,11 +475,13 @@ public class CallActivity extends AppCompatActivity {
                         return;
                     }
                 }
+
             }else{
                 audioManager.setBluetoothScoOn(false);
                 audioManager.stopBluetoothSco();
                 audioManager.setSpeakerphoneOn(true);
             }
+
         }catch(Exception ignored){}
     }
 
@@ -367,6 +494,7 @@ public class CallActivity extends AppCompatActivity {
                 pc.setLocalDescription(new Obs(){
                     @Override public void onSetSuccess(){
                         sendSdp("call_offer",s.description);
+
                         runOnUiThread(()->{
                             status.setText("يرن...");
                             startRingback();
@@ -379,6 +507,7 @@ public class CallActivity extends AppCompatActivity {
 
     private void acceptOffer(String sdp){
         SessionDescription s=new SessionDescription(SessionDescription.Type.OFFER,sdp);
+
         pc.setRemoteDescription(new Obs(){
             @Override public void onSetSuccess(){
                 remoteSet=true;
@@ -404,20 +533,27 @@ public class CallActivity extends AppCompatActivity {
     private void handleSignal(String json){
         try{
             JSONObject o=new JSONObject(json);
+
             if(!callId.equals(o.optString("callId")))return;
 
             String type=o.optString("type");
 
             if("call_answer".equals(type)&&"outgoing".equals(mode)){
                 stopRingback();
+
                 SessionDescription s=new SessionDescription(
-                        SessionDescription.Type.ANSWER,o.optString("sdp"));
-                pc.setRemoteDescription(new Obs(){
-                    @Override public void onSetSuccess(){
-                        remoteSet=true;
-                        flushIce();
-                    }
-                },s);
+                        SessionDescription.Type.ANSWER,
+                        o.optString("sdp")
+                );
+
+                if(pc!=null){
+                    pc.setRemoteDescription(new Obs(){
+                        @Override public void onSetSuccess(){
+                            remoteSet=true;
+                            flushIce();
+                        }
+                    },s);
+                }
 
             }else if("ice".equals(type)){
                 IceCandidate ic=new IceCandidate(
@@ -425,8 +561,12 @@ public class CallActivity extends AppCompatActivity {
                         o.optInt("mline"),
                         o.optString("candidate")
                 );
-                if(remoteSet&&pc!=null)pc.addIceCandidate(ic);
-                else pendingIce.add(ic);
+
+                if(remoteSet&&pc!=null){
+                    pc.addIceCandidate(ic);
+                }else{
+                    pendingIce.add(ic);
+                }
 
             }else if("call_hangup".equals(type)){
                 runOnUiThread(()->{
@@ -436,12 +576,17 @@ public class CallActivity extends AppCompatActivity {
                     h.postDelayed(this::finish,700);
                 });
             }
+
         }catch(Exception ignored){}
     }
 
     private void flushIce(){
         if(pc==null)return;
-        for(IceCandidate i:pendingIce)pc.addIceCandidate(i);
+
+        for(IceCandidate i:pendingIce){
+            pc.addIceCandidate(i);
+        }
+
         pendingIce.clear();
     }
 
@@ -477,10 +622,16 @@ public class CallActivity extends AppCompatActivity {
 
     private void onConnected(){
         if(connected)return;
+
         connected=true;
         connectedAt=System.currentTimeMillis();
+
         stopIncomingRinging();
         stopRingback();
+
+        if(incomingButtons!=null)incomingButtons.setVisibility(View.GONE);
+        if(inCallButtons!=null)inCallButtons.setVisibility(View.VISIBLE);
+
         status.setText("متصل");
         h.post(ticker);
     }
@@ -488,13 +639,18 @@ public class CallActivity extends AppCompatActivity {
     private final Runnable ticker=new Runnable(){
         @Override public void run(){
             if(!connected)return;
+
             long sec=(System.currentTimeMillis()-connectedAt)/1000;
-            time.setText(String.format(
-                    java.util.Locale.getDefault(),
-                    "%02d:%02d",
-                    sec/60,
-                    sec%60
-            ));
+
+            time.setText(
+                    String.format(
+                            java.util.Locale.getDefault(),
+                            "%02d:%02d",
+                            sec/60,
+                            sec%60
+                    )
+            );
+
             h.postDelayed(this,1000);
         }
     };
@@ -505,6 +661,7 @@ public class CallActivity extends AppCompatActivity {
                 RelayClient.publish(base("call_hangup").toString(),null);
             }catch(Exception ignored){}
         }
+
         cleanup();
         finish();
     }
@@ -512,12 +669,14 @@ public class CallActivity extends AppCompatActivity {
     private void cleanup(){
         connected=false;
         h.removeCallbacksAndMessages(null);
+
         stopIncomingRinging();
         stopRingback();
 
         try{
             if(ringback!=null)ringback.release();
         }catch(Exception ignored){}
+
         ringback=null;
 
         try{
@@ -536,7 +695,9 @@ public class CallActivity extends AppCompatActivity {
                 audioManager.stopBluetoothSco();
                 audioManager.setSpeakerphoneOn(false);
             }
+
             audioManager.setMode(AudioManager.MODE_NORMAL);
+
         }catch(Exception ignored){}
     }
 
@@ -549,7 +710,11 @@ public class CallActivity extends AppCompatActivity {
                 startRtc();
             }else{
                 stopIncomingRinging();
-                Toast.makeText(this,"الميكروفون مطلوب للمكالمة",Toast.LENGTH_LONG).show();
+                Toast.makeText(
+                        this,
+                        "الميكروفون مطلوب للمكالمة",
+                        Toast.LENGTH_LONG
+                ).show();
                 finish();
             }
         }
@@ -557,17 +722,23 @@ public class CallActivity extends AppCompatActivity {
 
     @Override protected void onResume(){
         super.onResume();
+
         try{
             registerReceiver(
                     receiver,
                     new IntentFilter(RealtimeService.ACTION_EVENT),
-                    Build.VERSION.SDK_INT>=33?Context.RECEIVER_NOT_EXPORTED:0
+                    Build.VERSION.SDK_INT>=33
+                            ?Context.RECEIVER_NOT_EXPORTED
+                            :0
             );
         }catch(Exception ignored){}
     }
 
     @Override protected void onPause(){
-        try{unregisterReceiver(receiver);}catch(Exception ignored){}
+        try{
+            unregisterReceiver(receiver);
+        }catch(Exception ignored){}
+
         super.onPause();
     }
 
