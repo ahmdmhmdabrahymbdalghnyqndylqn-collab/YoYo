@@ -1,10 +1,14 @@
 package com.yoyo.privatechat;
 
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -28,6 +32,7 @@ import okhttp3.WebSocket;
 public class RealtimeService extends Service {
     public static final String ACTION_EVENT = "com.yoyo.privatechat.EVENT";
     public static final String EXTRA_JSON = "json";
+    private static final String MESSAGE_CHANNEL="yoyo_messages_v2";
 
     private final Handler h = new Handler(Looper.getMainLooper());
     private WebSocket ws;
@@ -37,7 +42,8 @@ public class RealtimeService extends Service {
     @Override public void onCreate(){
         super.onCreate();
         channels();
-        startForeground(10, new NotificationCompat.Builder(this,"yoyo_service")
+
+        startForeground(10,new NotificationCompat.Builder(this,"yoyo_service")
                 .setSmallIcon(R.drawable.ic_heart)
                 .setContentTitle("YoYo")
                 .setContentText("متصل للمحادثات والمكالمات")
@@ -47,56 +53,60 @@ public class RealtimeService extends Service {
 
         connect();
         h.post(presenceLoop);
-        h.postDelayed(retryLoop, 8000);
-        h.postDelayed(syncLoop, 1200);
+        h.postDelayed(retryLoop,8000);
+        h.postDelayed(syncLoop,1200);
+        h.postDelayed(updateLoop,5000);
     }
 
     private void connect(){
-        if(stopping) return;
-        if(ws!=null){ try{ws.cancel();}catch(Exception ignored){} }
+        if(stopping)return;
+        if(ws!=null){try{ws.cancel();}catch(Exception ignored){}}
 
-        ws = RelayClient.subscribe(new RelayClient.Listener() {
-            @Override public void onEvent(String json) {
-                h.post(() -> handle(json));
-            }
-
-            @Override public void onState(boolean connected) {
+        ws=RelayClient.subscribe(new RelayClient.Listener(){
+            @Override public void onEvent(String json){h.post(()->handle(json));}
+            @Override public void onState(boolean connected){
                 if(connected){
-                    h.postDelayed(() -> {
+                    h.postDelayed(()->{
                         retryOutstanding();
                         syncNow();
-                    }, 1000);
-                } else if(!stopping){
-                    h.postDelayed(() -> connect(), 3500);
+                    },1000);
+                }else if(!stopping){
+                    h.postDelayed(()->connect(),3500);
                 }
             }
         });
     }
 
-    private final Runnable presenceLoop = new Runnable() {
-        @Override public void run() {
+    private final Runnable presenceLoop=new Runnable(){
+        @Override public void run(){
             sendPresence();
-            if(!stopping) h.postDelayed(this,60000);
+            if(!stopping)h.postDelayed(this,60000);
         }
     };
 
-    private final Runnable retryLoop = new Runnable() {
-        @Override public void run() {
+    private final Runnable retryLoop=new Runnable(){
+        @Override public void run(){
             retryOutstanding();
-            if(!stopping) h.postDelayed(this,60000);
+            if(!stopping)h.postDelayed(this,60000);
         }
     };
 
-    private final Runnable syncLoop = new Runnable() {
-        @Override public void run() {
+    private final Runnable syncLoop=new Runnable(){
+        @Override public void run(){
             syncNow();
-            if(!stopping) h.postDelayed(this,120000);
+            if(!stopping)h.postDelayed(this,120000);
+        }
+    };
+
+    private final Runnable updateLoop=new Runnable(){
+        @Override public void run(){
+            UpdateManager.checkAndDownload(RealtimeService.this);
+            if(!stopping)h.postDelayed(this,6L*60L*60L*1000L);
         }
     };
 
     private void sendPresence(){
-        if(!Prefs.hasProfile(this)||Prefs.token(this).isEmpty()) return;
-
+        if(!Prefs.hasProfile(this)||Prefs.token(this).isEmpty())return;
         BackendClient.presence(this);
 
         try{
@@ -113,7 +123,7 @@ public class RealtimeService extends Service {
     }
 
     private void retryOutstanding(){
-        if(!Prefs.hasProfile(this)||Prefs.token(this).isEmpty()) return;
+        if(!Prefs.hasProfile(this)||Prefs.token(this).isEmpty())return;
 
         List<EventStore.Msg> pending=EventStore.outstanding(this);
         for(EventStore.Msg m:pending){
@@ -140,25 +150,27 @@ public class RealtimeService extends Service {
     }
 
     private void syncNow(){
-        if(syncing || !Prefs.hasProfile(this) || Prefs.token(this).isEmpty()) return;
+        if(syncing||!Prefs.hasProfile(this)||Prefs.token(this).isEmpty())return;
         syncing=true;
 
         BackendClient.sync(this,(ok,data,error)->{
             syncing=false;
-            if(!ok || data==null) return;
+            if(!ok||data==null)return;
 
             try{
                 Map<String,EventStore.Contact> contactMap=new HashMap<>();
                 JSONArray contacts=data.optJSONArray("contacts");
+
                 if(contacts!=null){
                     for(int i=0;i<contacts.length();i++){
                         JSONObject c=contacts.optJSONObject(i);
-                        if(c==null) continue;
+                        if(c==null)continue;
 
                         String phone=c.optString("phone","");
                         String name=c.optString("name",phone);
                         String avatar=c.optString("avatar","");
                         long seen=parseTime(c.optString("last_seen",""));
+
                         EventStore.Contact ec=new EventStore.Contact(phone,name,avatar,seen);
                         EventStore.upsertContact(this,ec);
                         contactMap.put(phone,ec);
@@ -171,7 +183,7 @@ public class RealtimeService extends Service {
                 if(messages!=null){
                     for(int i=0;i<messages.length();i++){
                         JSONObject m=messages.optJSONObject(i);
-                        if(m==null) continue;
+                        if(m==null)continue;
 
                         String id=m.optString("id","");
                         String from=m.optString("sender","");
@@ -179,11 +191,8 @@ public class RealtimeService extends Service {
                         String encrypted=m.optString("body","");
                         String text;
 
-                        try{
-                            text=CryptoBox.decrypt(encrypted);
-                        }catch(Exception e){
-                            continue;
-                        }
+                        try{text=CryptoBox.decrypt(encrypted);}
+                        catch(Exception e){continue;}
 
                         long ts=parseTime(m.optString("created_at",""));
                         boolean mine=Prefs.phone(this).equals(from);
@@ -193,7 +202,7 @@ public class RealtimeService extends Service {
                             status=m.isNull("delivered_at")?"sent":"delivered";
                         }else{
                             status="received";
-                            if(m.isNull("delivered_at")) ackIds.add(id);
+                            if(m.isNull("delivered_at"))ackIds.add(id);
                         }
 
                         boolean fresh=EventStore.addMessage(
@@ -201,29 +210,22 @@ public class RealtimeService extends Service {
                                 new EventStore.Msg(id,from,to,text,ts,status)
                         );
 
-                        if(fresh && !mine){
+                        if(fresh&&!mine){
                             EventStore.Contact c=contactMap.get(from);
-                            showMessage(
-                                    from,
-                                    c==null?from:c.name,
-                                    text
-                            );
+                            showMessage(from,c==null?from:c.name,text);
                         }
                     }
                 }
 
-                if(!ackIds.isEmpty()) BackendClient.ack(this,ackIds);
+                if(!ackIds.isEmpty())BackendClient.ack(this,ackIds);
                 broadcast("{}");
             }catch(Exception ignored){}
         });
     }
 
     private long parseTime(String iso){
-        try{
-            return Instant.parse(iso).toEpochMilli();
-        }catch(Exception e){
-            return System.currentTimeMillis();
-        }
+        try{return Instant.parse(iso).toEpochMilli();}
+        catch(Exception e){return System.currentTimeMillis();}
     }
 
     private void sendAck(String to,String msgId){
@@ -248,8 +250,8 @@ public class RealtimeService extends Service {
             String from=o.optString("from");
             String to=o.optString("to","all");
 
-            if(from.equals(Prefs.phone(this))) return;
-            if(!"all".equals(to) && !Prefs.phone(this).equals(to)) return;
+            if(from.equals(Prefs.phone(this)))return;
+            if(!"all".equals(to)&&!Prefs.phone(this).equals(to))return;
 
             String name=o.optString("name",from);
             String avatar=o.optString("avatar","");
@@ -273,20 +275,20 @@ public class RealtimeService extends Service {
                 sendAck(from,msgId);
                 broadcast(json);
 
-                if(fresh) showMessage(from,name,o.optString("text"));
-            } else if("ack".equals(type)){
+                if(fresh)showMessage(from,name,o.optString("text"));
+            }else if("ack".equals(type)){
                 String msgId=o.optString("msgId");
-                if(!msgId.isEmpty()) EventStore.markDelivered(this,from,msgId);
+                if(!msgId.isEmpty())EventStore.markDelivered(this,from,msgId);
                 broadcast(json);
-            } else if("presence".equals(type)){
+            }else if("presence".equals(type)){
                 broadcast(json);
-            } else if("call_offer".equals(type)){
+            }else if("call_offer".equals(type)){
                 if(System.currentTimeMillis()-ts<120000L){
                     broadcast(json);
                     showIncomingCall(o);
                 }
-            } else if(type.startsWith("call_") || "ice".equals(type)){
-                if(System.currentTimeMillis()-ts<120000L) broadcast(json);
+            }else if(type.startsWith("call_")||"ice".equals(type)){
+                if(System.currentTimeMillis()-ts<120000L)broadcast(json);
             }
         }catch(Exception ignored){}
     }
@@ -311,14 +313,20 @@ public class RealtimeService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE
         );
 
-        NotificationCompat.Builder b=new NotificationCompat.Builder(this,"yoyo_messages")
+        NotificationCompat.Builder b=new NotificationCompat.Builder(this,MESSAGE_CHANNEL)
                 .setSmallIcon(R.drawable.ic_heart)
                 .setContentTitle(name)
                 .setContentText(text)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
                 .setAutoCancel(true)
                 .setContentIntent(pi)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setDefaults(NotificationCompat.DEFAULT_ALL);
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
+                .setShowWhen(true)
+                .setWhen(System.currentTimeMillis())
+                .setDefaults(NotificationCompat.DEFAULT_LIGHTS|NotificationCompat.DEFAULT_VIBRATE);
 
         ((NotificationManager)getSystemService(NOTIFICATION_SERVICE))
                 .notify((phone+System.currentTimeMillis()).hashCode(),b.build());
@@ -357,8 +365,7 @@ public class RealtimeService extends Service {
                 .addAction(0,"رد",pi)
                 .setDefaults(NotificationCompat.DEFAULT_ALL);
 
-        ((NotificationManager)getSystemService(NOTIFICATION_SERVICE))
-                .notify(9001,b.build());
+        ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(9001,b.build());
     }
 
     private void channels(){
@@ -370,9 +377,22 @@ public class RealtimeService extends Service {
             serviceChannel.setSound(null,null);
             nm.createNotificationChannel(serviceChannel);
 
-            nm.createNotificationChannel(
-                    new NotificationChannel("yoyo_messages","رسائل YoYo",NotificationManager.IMPORTANCE_HIGH)
-            );
+            Uri sound=RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            AudioAttributes attrs=new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build();
+
+            NotificationChannel messageChannel=
+                    new NotificationChannel(MESSAGE_CHANNEL,"رسائل YoYo ❤️",NotificationManager.IMPORTANCE_HIGH);
+            messageChannel.setDescription("رسائل YoYo بصوت واهتزاز وبانر أعلى الشاشة");
+            messageChannel.setSound(sound,attrs);
+            messageChannel.enableVibration(true);
+            messageChannel.setVibrationPattern(new long[]{0,240,110,240});
+            messageChannel.enableLights(true);
+            messageChannel.setShowBadge(true);
+            messageChannel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            nm.createNotificationChannel(messageChannel);
 
             nm.createNotificationChannel(
                     new NotificationChannel("yoyo_calls","مكالمات YoYo",NotificationManager.IMPORTANCE_HIGH)
@@ -391,9 +411,7 @@ public class RealtimeService extends Service {
         super.onDestroy();
     }
 
-    @Override public IBinder onBind(Intent intent){
-        return null;
-    }
+    @Override public IBinder onBind(Intent intent){return null;}
 
     public static void start(android.content.Context c){
         ContextCompat.startForegroundService(c,new Intent(c,RealtimeService.class));

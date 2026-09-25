@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 
     <application
         android:allowBackup="true"
@@ -16,6 +17,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.YoYo">
 
+        <activity android:name=".UpdateInstallActivity" android:screenOrientation="portrait" android:exported="false"/>
         <activity android:name=".CallActivity" android:screenOrientation="portrait" android:exported="false"/>
         <activity android:name=".ChatActivity" android:screenOrientation="portrait" android:exported="false"/>
         <activity android:name=".MainActivity" android:screenOrientation="portrait" android:exported="true">
@@ -24,6 +26,14 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".UpdateDownloadReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE"/>
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".RealtimeService"

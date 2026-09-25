@@ -53,6 +53,13 @@ jobs:
             keytool -genkeypair -v               -keystore .signing/yoyo.jks               -storepass "$PASS"               -keypass "$PASS"               -alias yoyo               -keyalg RSA               -keysize 2048               -validity 10000               -dname "CN=YoYo, OU=Private Chat, O=YoYo, L=Amman, C=JO"
           fi
 
+      - name: Read app version
+        shell: bash
+        run: |
+          VERSION="$(sed -n "s/.*versionName '\([^']*\)'.*/\1/p" app/build.gradle | head -1)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+
       - name: Build release APK
         run: gradle :app:assembleRelease --stacktrace
 
@@ -75,8 +82,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.0.3 >/dev/null 2>&1; then
-            gh release upload v1.0.3 YoYo.apk --clobber
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" YoYo.apk --clobber
           else
-            gh release create v1.0.3 YoYo.apk --target "$GITHUB_SHA" --title "YoYo v1.0.3" --notes "Stable-signed Android build with persistent Supabase message storage for offline delivery over days."
+            gh release create "$TAG" YoYo.apk               --target "$GITHUB_SHA"               --title "YoYo $TAG"               --notes "YoYo Android release with persistent messaging, heads-up notifications, and automatic update delivery."
           fi
