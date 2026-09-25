@@ -39,8 +39,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.0.1 >/dev/null 2>&1; then
-            gh release upload v1.0.1 YoYo.apk --clobber
+          if gh release view v1.0.2 >/dev/null 2>&1; then
+            gh release upload v1.0.2 YoYo.apk --clobber
           else
-            gh release create v1.0.1 YoYo.apk --target "$GITHUB_SHA" --title "YoYo v1.0.1" --notes "Adds offline-message replay, retry queue, and delivery acknowledgements."
+            gh release create v1.0.2 YoYo.apk --target "$GITHUB_SHA" --title "YoYo v1.0.2" --notes "Persistent Supabase message storage for offline delivery over days, plus realtime chat and delivery acknowledgements."
           fi
