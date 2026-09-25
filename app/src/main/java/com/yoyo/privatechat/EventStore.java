@@ -40,7 +40,13 @@ public final class EventStore {
     public static synchronized void upsertContact(Context c, Contact nc){
         if(nc.phone == null || nc.phone.equals(Prefs.phone(c))) return;
         List<Contact> list=contacts(c); boolean found=false;
-        for(Contact x:list) if(x.phone.equals(nc.phone)){x.name=nc.name;x.avatar=nc.avatar;x.lastSeen=Math.max(x.lastSeen,nc.lastSeen);found=true;break;}
+        for(Contact x:list) if(x.phone.equals(nc.phone)){
+            x.name=nc.name;
+            x.avatar=nc.avatar;
+            x.lastSeen=Math.max(x.lastSeen,nc.lastSeen);
+            found=true;
+            break;
+        }
         if(!found && list.size()<5) list.add(nc);
         sp(c).edit().putString("contacts",G.toJson(list)).apply();
     }
@@ -54,27 +60,31 @@ public final class EventStore {
     }
 
     public static synchronized boolean addMessage(Context c,Msg m){
-        String me=Prefs.phone(c); String other=me.equals(m.from)?m.to:m.from;
+        String me=Prefs.phone(c);
+        String other=me.equals(m.from)?m.to:m.from;
         if(other==null || other.isEmpty()) return false;
         List<Msg> list=messages(c,other);
-        for(Msg x:list) if(x.id!=null && x.id.equals(m.id)) return false;
+        for(Msg x:list){
+            if(x.id!=null && x.id.equals(m.id)){
+                boolean changed=false;
+                if(rank(m.status)>rank(x.status)){ x.status=m.status; changed=true; }
+                if((x.text==null||x.text.isEmpty()) && m.text!=null){ x.text=m.text; changed=true; }
+                if(changed) sp(c).edit().putString("m_"+safe(other),G.toJson(list)).apply();
+                return false;
+            }
+        }
         list.add(m);
         if(list.size()>500) list=new ArrayList<>(list.subList(list.size()-500,list.size()));
         sp(c).edit().putString("m_"+safe(other),G.toJson(list)).apply();
         return true;
     }
 
-    public static synchronized void markSent(Context c,String other,String id){
-        setStatus(c,other,id,"sent");
-    }
-
-    public static synchronized void markDelivered(Context c,String other,String id){
-        setStatus(c,other,id,"delivered");
-    }
+    public static synchronized void markSent(Context c,String other,String id){ setStatus(c,other,id,"sent"); }
+    public static synchronized void markDelivered(Context c,String other,String id){ setStatus(c,other,id,"delivered"); }
 
     private static void setStatus(Context c,String other,String id,String status){
         List<Msg> list=messages(c,other);
-        for(Msg x:list) if(id.equals(x.id)) x.status=status;
+        for(Msg x:list) if(id.equals(x.id) && rank(status)>rank(x.status)) x.status=status;
         sp(c).edit().putString("m_"+safe(other),G.toJson(list)).apply();
     }
 
@@ -87,6 +97,12 @@ public final class EventStore {
             }
         }
         return out;
+    }
+
+    private static int rank(String s){
+        if("delivered".equals(s)) return 3;
+        if("sent".equals(s)||"received".equals(s)) return 2;
+        return 1;
     }
 
     private static String safe(String s){ return s.replaceAll("[^0-9A-Za-z]", "_"); }
