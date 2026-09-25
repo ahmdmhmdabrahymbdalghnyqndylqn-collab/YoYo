@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
@@ -23,11 +24,33 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
+      - name: Restore stable YoYo signing key
+        uses: actions/cache@v4
+        with:
+          path: .signing
+          key: yoyo-signing-v1
 
-      - name: Prepare YoYo APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk YoYo.apk
+      - name: Create signing key once
+        shell: bash
+        run: |
+          mkdir -p .signing
+          if [ ! -f .signing/yoyo.jks ]; then
+            PASS="$(openssl rand -hex 24)"
+            printf '%s' "$PASS" > .signing/password.txt
+            keytool -genkeypair -v               -keystore .signing/yoyo.jks               -storepass "$PASS"               -keypass "$PASS"               -alias yoyo               -keyalg RSA               -keysize 2048               -validity 10000               -dname "CN=YoYo, OU=Private Chat, O=YoYo, L=Amman, C=JO"
+          fi
+
+      - name: Build release APK
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Sign and verify APK
+        shell: bash
+        run: |
+          PASS="$(cat .signing/password.txt)"
+          BT="$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          "$ANDROID_HOME/build-tools/$BT/zipalign" -f 4             app/build/outputs/apk/release/app-release-unsigned.apk             YoYo-aligned.apk
+          "$ANDROID_HOME/build-tools/$BT/apksigner" sign             --ks .signing/yoyo.jks             --ks-key-alias yoyo             --ks-pass pass:"$PASS"             --key-pass pass:"$PASS"             --out YoYo.apk             YoYo-aligned.apk
+          "$ANDROID_HOME/build-tools/$BT/apksigner" verify --verbose YoYo.apk
 
       - uses: actions/upload-artifact@v4
         with:
@@ -39,8 +62,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.0.2 >/dev/null 2>&1; then
-            gh release upload v1.0.2 YoYo.apk --clobber
+          if gh release view v1.0.3 >/dev/null 2>&1; then
+            gh release upload v1.0.3 YoYo.apk --clobber
           else
-            gh release create v1.0.2 YoYo.apk --target "$GITHUB_SHA" --title "YoYo v1.0.2" --notes "Persistent Supabase message storage for offline delivery over days, plus realtime chat and delivery acknowledgements."
+            gh release create v1.0.3 YoYo.apk --target "$GITHUB_SHA" --title "YoYo v1.0.3" --notes "Stable-signed Android build with persistent Supabase message storage for offline delivery over days."
           fi
