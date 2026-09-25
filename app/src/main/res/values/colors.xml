@@ -1,0 +1,10 @@
+<resources>
+    <color name="white">#FFFFFF</color>
+    <color name="yoyo_accent">#E85D75</color>
+    <color name="yoyo_accent_dark">#C83E5A</color>
+    <color name="yoyo_soft">#FFF3F6</color>
+    <color name="text_primary">#161616</color>
+    <color name="text_secondary">#6B6B6B</color>
+    <color name="bubble_in">#F4F4F5</color>
+    <color name="bubble_out">#FFE4EA</color>
+</resources>
