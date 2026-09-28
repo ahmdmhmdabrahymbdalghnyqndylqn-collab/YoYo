@@ -1,8 +1,13 @@
-# YoYo
-Private Android chat + audio calling prototype for up to six trusted users.
+# YOYO 1.0
 
-## Zero-cost relay mode
-This build uses a private, high-entropy ntfy topic as a lightweight relay and encrypts app payloads with AES-GCM. It is intended for a small trusted group/prototype. For production-grade account verification, guaranteed background delivery and TURN fallback, replace the relay module with a dedicated backend.
+Clean Android build of YOYO.
 
-## Build
-`gradle :app:assembleDebug`
+Features:
+- Private chat
+- Live sent / delivered / seen status
+- Voice notes
+- Stories
+- Voice calls
+- Incoming call answer / reject screen
+
+Installable APK: GitHub Releases → YOYO-1.0.apk
