@@ -1,4 +1,4 @@
-name: Build YOYO 0.3.4 unsigned
+name: Build YOYO 1.0 APK
 
 on:
   workflow_dispatch:
@@ -20,24 +20,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build unsigned release APK
-        run: gradle :nativeapp:assembleRelease --stacktrace
-      - name: Package local signing tools
-        shell: bash
-        run: |
-          set -eux
-          BT="$ANDROID_HOME/build-tools/35.0.0"
-          mkdir -p sign-tools/lib
-          cp "$BT/zipalign" sign-tools/
-          cp "$BT/apksigner" sign-tools/
-          cp "$BT/lib/apksigner.jar" sign-tools/lib/
-          chmod +x sign-tools/zipalign sign-tools/apksigner
-          zip -qr sign-tools-linux.zip sign-tools
-          cp nativeapp/build/outputs/apk/release/nativeapp-release-unsigned.apk YOYO-0.3.4-unsigned.apk
-      - name: Publish temporary unsigned build
+      - name: Build installable APK
+        run: gradle :nativeapp:assembleDebug --stacktrace
+      - name: Prepare APK
+        run: cp nativeapp/build/outputs/apk/debug/nativeapp-debug.apk YOYO-1.0.apk
+      - name: Publish APK
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release delete build-0.3.4 --yes --cleanup-tag || true
-          gh release create build-0.3.4 YOYO-0.3.4-unsigned.apk sign-tools-linux.zip             --target "$GITHUB_SHA"             --title "YOYO 0.3.4 build inputs"             --notes "Temporary unsigned build inputs. Final APK is signed outside CI with the existing YOYO certificate."
+          gh release delete yoyo-v1.0.0 --yes --cleanup-tag || true
+          gh release create yoyo-v1.0.0 YOYO-1.0.apk \
+            --target "$GITHUB_SHA" \
+            --title "YOYO 1.0" \
+            --notes "Fresh installable Android build of YOYO 1.0."
