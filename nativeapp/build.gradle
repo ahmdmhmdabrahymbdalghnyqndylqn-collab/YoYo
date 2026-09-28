@@ -1,0 +1,52 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.yoyo.privatechat'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    packaging { jniLibs { useLegacyPackaging = true } }
+
+    buildFeatures { buildConfig true }
+    defaultConfig {
+        buildConfigField 'String', 'OWNER_ENROLLMENT', '"' + (System.getenv('YOYO_OWNER_ENROLLMENT') ?: '') + '"'
+        buildConfigField 'String', 'GUEST_DOWNLOAD_URL', '"' + (System.getenv('YOYO_GUEST_DOWNLOAD_URL') ?: 'https://ivjqorxkqnipyelnjlqp.supabase.co/storage/v1/object/public/yoyo-apk-releases/v0.3.4/YOYO.apk?download=YOYO.apk') + '"'
+        applicationId 'com.yoyo.nativeapp'
+        minSdk 26
+        targetSdk 35
+        versionCode 7
+        versionName '0.3.4'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'
+            ['https.proxyHost','https.proxyPort','http.proxyHost','http.proxyPort','javax.net.ssl.trustStore','javax.net.ssl.trustStorePassword'].each { k ->
+                if (System.getProperty(k)) systemProperty k, System.getProperty(k)
+            }
+        }
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core:1.15.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'io.github.webrtc-sdk:android:150.7871.01'
+}
