@@ -1,9 +1,13 @@
-name: Build YOYO 1.0 APK
+name: Build YOYO stable APK
 
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
+
+concurrency:
+  group: yoyo-stable-build
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -20,17 +24,31 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build installable APK
-        run: gradle :nativeapp:assembleDebug --stacktrace
+      - name: Restore YOYO signing key
+        id: signing-cache
+        uses: actions/cache@v4
+        with:
+          path: .signing/yoyo.jks
+          key: yoyo-stable-signing-v1
+      - name: Create signing key once
+        if: steps.signing-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p .signing
+          keytool -genkeypair -v -keystore .signing/yoyo.jks -storepass android -alias yoyo -keypass android -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=YOYO, O=YOYO, C=JO"
+      - name: Build signed release APK
+        env:
+          YOYO_SIGNING_FILE: ${{ github.workspace }}/.signing/yoyo.jks
+          YOYO_STORE_PASSWORD: android
+          YOYO_KEY_PASSWORD: android
+          YOYO_KEY_ALIAS: yoyo
+        run: gradle :nativeapp:assembleRelease --stacktrace
       - name: Prepare APK
-        run: cp nativeapp/build/outputs/apk/debug/nativeapp-debug.apk YOYO-1.0.apk
-      - name: Publish APK
+        run: cp nativeapp/build/outputs/apk/release/nativeapp-release.apk YOYO-1.1.apk
+      - name: Publish YOYO 1.1
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release delete yoyo-v1.0.0 --yes --cleanup-tag || true
-          gh release create yoyo-v1.0.0 YOYO-1.0.apk \
-            --target "$GITHUB_SHA" \
-            --title "YOYO 1.0" \
-            --notes "Fresh installable Android build of YOYO 1.0."
+          gh release delete yoyo-v1.1.0 --yes --cleanup-tag || true
+          gh release create yoyo-v1.1.0 YOYO-1.1.apk --target "$GITHUB_SHA" --title "YOYO 1.1" --notes "Android 6+ build with update checks."
