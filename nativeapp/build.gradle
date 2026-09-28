@@ -9,7 +9,7 @@ android {
     buildFeatures { buildConfig true }
     defaultConfig {
         buildConfigField 'String', 'OWNER_ENROLLMENT', '"' + (System.getenv('YOYO_OWNER_ENROLLMENT') ?: '') + '"'
-        buildConfigField 'String', 'GUEST_DOWNLOAD_URL', '"' + (System.getenv('YOYO_GUEST_DOWNLOAD_URL') ?: 'https://github.com/ahmdmhmdabrahymbdalghnyqndylqn-collab/YoYo/releases/download/yoyo-v1.0.0/YOYO-1.0.apk') + '"'
+        buildConfigField 'String', 'GUEST_DOWNLOAD_URL', '"' + (System.getenv('YOYO_GUEST_DOWNLOAD_URL') ?: 'https://github.com/ahmdmhmdabrahymbdalghnyqndylqn-collab/YoYo/releases/download/yoyo-v1.1.0/YOYO-1.1.apk') + '"'
         applicationId 'com.yoyo.cleanapp'
         minSdk 23
         targetSdk 35
@@ -17,8 +17,21 @@ android {
         versionName '1.1.0'
     }
 
+    signingConfigs {
+        stable {
+            def signingPath = System.getenv('YOYO_SIGNING_FILE')
+            if (signingPath) {
+                storeFile file(signingPath)
+                storePassword System.getenv('YOYO_STORE_PASSWORD')
+                keyAlias System.getenv('YOYO_KEY_ALIAS')
+                keyPassword System.getenv('YOYO_KEY_PASSWORD')
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (System.getenv('YOYO_SIGNING_FILE')) signingConfig signingConfigs.stable
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
