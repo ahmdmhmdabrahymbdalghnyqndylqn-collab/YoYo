@@ -30,19 +30,14 @@ final class UpdateManager {
 
  private static void prepare(Activity a,int version,String name,String url){
   if(a.isFinishing()||a.isDestroyed())return;
-  if(Build.VERSION.SDK_INT>=26&&!a.getPackageManager().canRequestPackageInstalls()){
-   if(!Prefs.get(a,"update_permission_asked_"+version).equals("1")){
-    Prefs.put(a,"update_permission_asked_"+version,"1");
-    Ui.toast(a,"اسمح ليويو بتثبيت التحديثات، وبعدها ارجع للتطبيق");
-    Intent s=new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+a.getPackageName()));
-    a.startActivity(s);
-   }
+  File out=new File(a.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),"YOYO-update.apk");
+  if(out.exists()&&Prefs.get(a,"update_ready_version").equals(String.valueOf(version))){
+   offerInstall(a,version,name,out);
    return;
   }
   if(Prefs.get(a,"update_downloading").equals(String.valueOf(version)))return;
   Prefs.put(a,"update_downloading",String.valueOf(version));
-  Ui.toast(a,"يويو "+name+" قيد التنزيل…");
-  File out=new File(a.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),"YOYO-update.apk");
+  Ui.toast(a,"يويو "+name+" قيد التنزيل بالخلفية…");
   if(out.exists())out.delete();
   DownloadManager dm=(DownloadManager)a.getSystemService(Context.DOWNLOAD_SERVICE);
   DownloadManager.Request q=new DownloadManager.Request(Uri.parse(url))
@@ -54,6 +49,31 @@ final class UpdateManager {
   poll(a,dm,id,out,version,0);
  }
 
+ private static void offerInstall(Activity a,int version,String name,File out){
+  if(a.isFinishing()||a.isDestroyed()||!out.exists())return;
+  String shown=name==null||name.isEmpty()?"الجديد":name;
+  new AlertDialog.Builder(a)
+    .setTitle("تحديث YOYO جاهز")
+    .setMessage("تم تنزيل تحديث "+shown+" بالكامل. ثبّته الآن أو كمل استخدام التطبيق وثبّته لاحقًا.")
+    .setPositiveButton("تثبيت الآن",(d,w)->installNow(a,out))
+    .setNegativeButton("لاحقًا",null)
+    .show();
+ }
+
+ private static void installNow(Activity a,File out){
+  if(Build.VERSION.SDK_INT>=26&&!a.getPackageManager().canRequestPackageInstalls()){
+   Ui.toast(a,"اسمح ليويو بتثبيت التحديثات ثم ارجع للتطبيق");
+   a.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+a.getPackageName())));
+   return;
+  }
+  try{
+   Uri uri=FileProvider.getUriForFile(a,a.getPackageName()+".files",out);
+   Intent i=new Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/vnd.android.package-archive")
+     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);
+   a.startActivity(i);
+  }catch(Exception e){Ui.toast(a,"تعذر فتح التحديث؛ حاول لاحقًا");}
+ }
+
  private static void poll(Activity a,DownloadManager dm,long id,File out,int version,int tries){
   MAIN.postDelayed(()->{
    if(a.isFinishing()||a.isDestroyed())return;
@@ -62,10 +82,8 @@ final class UpdateManager {
      int status=c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
      if(status==DownloadManager.STATUS_SUCCESSFUL){
       Prefs.put(a,"update_downloading","");
-      Uri uri=FileProvider.getUriForFile(a,a.getPackageName()+".files",out);
-      Intent i=new Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/vnd.android.package-archive")
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);
-      a.startActivity(i);
+      Prefs.put(a,"update_ready_version",String.valueOf(version));
+      offerInstall(a,version,"",out);
       return;
      }
      if(status==DownloadManager.STATUS_FAILED){
