@@ -44,11 +44,11 @@ jobs:
           YOYO_KEY_ALIAS: yoyo
         run: gradle :nativeapp:assembleRelease --stacktrace
       - name: Prepare APK
-        run: cp nativeapp/build/outputs/apk/release/nativeapp-release.apk YOYO-1.1.apk
-      - name: Publish YOYO 1.1
+        run: cp nativeapp/build/outputs/apk/release/nativeapp-release.apk YOYO-1.2.apk
+      - name: Publish YOYO 1.2
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release delete yoyo-v1.1.0 --yes --cleanup-tag || true
-          gh release create yoyo-v1.1.0 YOYO-1.1.apk --target "$GITHUB_SHA" --title "YOYO 1.1" --notes "Android 6+ build with update checks."
+          gh release delete yoyo-v1.2.0 --yes --cleanup-tag || true
+          gh release create yoyo-v1.2.0 YOYO-1.2.apk --target "$GITHUB_SHA" --title "YOYO 1.2" --notes "Android 6+ build with update checks."
