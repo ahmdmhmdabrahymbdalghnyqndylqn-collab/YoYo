@@ -4,7 +4,7 @@ public class MainActivity extends AppCompatActivity{
  LinearLayout body,root;int tab=0;boolean registering=false;String pick="avatar";TextView connection;
  final ActivityResultLauncher<String[]> picker=registerForActivityResult(new ActivityResultContracts.OpenDocument(),uri->{if(uri!=null)Api.job(()->{String im=Avatar.fromUri(this,uri);if(im.isEmpty())throw new Exception("تعذر فتح الصورة");if(pick.equals("avatar"))Api.profile(this,Prefs.name(this),im);else publishStory("",im);},e->{if(e!=null)Ui.toast(this,e);else render();});});
  final BroadcastReceiver events=new BroadcastReceiver(){public void onReceive(Context c,Intent i){if(body!=null&&tab<3)renderContent();}};
- public void onCreate(Bundle b){super.onCreate(b);if(Prefs.hasProfile(this))enter();else welcome();}
+ public void onCreate(Bundle b){super.onCreate(b);UpdateManager.check(this);if(Prefs.hasProfile(this))enter();else welcome();}
  void field(LinearLayout p,View e){p.addView(e,new LinearLayout.LayoutParams(-1,Ui.dp(this,56)));Ui.space(p,12);}
  void welcome(){body=null;new EntryScreen(this).show();}
 
