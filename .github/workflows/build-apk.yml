@@ -51,18 +51,18 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | head -n 20
 
       - name: Prepare APK
-        run: cp nativeapp/build/outputs/apk/release/nativeapp-release.apk YOYO-FIX.apk
+        run: cp nativeapp/build/outputs/apk/release/nativeapp-release.apk YOYO-NEW.apk
 
       - name: Upload install test artifact
         uses: actions/upload-artifact@v4
         with:
           name: YOYO-FIX
-          path: YOYO-FIX.apk
+          path: YOYO-NEW.apk
           retention-days: 7
-      - name: Publish YOYO FIX
+      - name: Publish YOYO NEW
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release delete yoyo-fix-install --yes --cleanup-tag || true
-          gh release create yoyo-fix-install YOYO-FIX.apk --target "$GITHUB_SHA" --title "YOYO FIX" --notes "Android 6+ build with update checks."
+          gh release delete yoyo-install-v2 --yes --cleanup-tag || true
+          gh release create yoyo-install-v2 YOYO-NEW.apk --target "$GITHUB_SHA" --title "YOYO NEW" --notes "Android 6+ build with update checks."
