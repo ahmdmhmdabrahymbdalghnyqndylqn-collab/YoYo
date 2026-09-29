@@ -43,12 +43,26 @@ jobs:
           YOYO_KEY_PASSWORD: android
           YOYO_KEY_ALIAS: yoyo
         run: gradle :nativeapp:assembleRelease --stacktrace
+      - name: Verify signed APK
+        shell: bash
+        run: |
+          APK=nativeapp/build/outputs/apk/release/nativeapp-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | head -n 20
+
       - name: Prepare APK
-        run: cp nativeapp/build/outputs/apk/release/nativeapp-release.apk YOYO-1.4.apk
-      - name: Publish YOYO 1.4
+        run: cp nativeapp/build/outputs/apk/release/nativeapp-release.apk YOYO-FIX.apk
+
+      - name: Upload install test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: YOYO-FIX
+          path: YOYO-FIX.apk
+          retention-days: 7
+      - name: Publish YOYO FIX
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release delete yoyo-v1.4.0 --yes --cleanup-tag || true
-          gh release create yoyo-v1.4.0 YOYO-1.4.apk --target "$GITHUB_SHA" --title "YOYO 1.4" --notes "Android 6+ build with update checks."
+          gh release delete yoyo-fix-install --yes --cleanup-tag || true
+          gh release create yoyo-fix-install YOYO-FIX.apk --target "$GITHUB_SHA" --title "YOYO FIX" --notes "Android 6+ build with update checks."
