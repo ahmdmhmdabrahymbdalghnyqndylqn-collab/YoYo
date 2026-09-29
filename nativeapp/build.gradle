@@ -10,11 +10,11 @@ android {
     defaultConfig {
         buildConfigField 'String', 'OWNER_ENROLLMENT', '"' + (System.getenv('YOYO_OWNER_ENROLLMENT') ?: '') + '"'
         buildConfigField 'String', 'GUEST_DOWNLOAD_URL', '"' + (System.getenv('YOYO_GUEST_DOWNLOAD_URL') ?: 'https://github.com/ahmdmhmdabrahymbdalghnyqndylqn-collab/YoYo/releases/download/yoyo-v1.5.0/YOYO-1.5.apk') + '"'
-        applicationId 'com.yoyo.cleanapp2'
+        applicationId 'com.yoyo.installfix3'
         minSdk 23
         targetSdk 35
-        versionCode 4
-        versionName '1.5.0'
+        versionCode 1
+        versionName '2.0.0'
     }
 
     signingConfigs {
